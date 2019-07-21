@@ -20,7 +20,7 @@ typedef struct {
 } CLI_Arguments;
 
 
-
+void			CLI_init				(void);
 void			CLI_welcomeMessage 		(void);
 CLI_Arguments	CLI_validateArguments	(int, char **);
 void			CLI_printArguments		(CLI_Arguments);
