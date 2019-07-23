@@ -10,10 +10,10 @@ extern FILE *stdin;
 extern FILE *stdout;
 extern FILE *stderr;
 
+#define callResult(functionName)		fprintf ((callReturn) ? stderr : stdout, functionName"() [%d]: %s\n", callReturn, strerror (callReturn ? errno : 0));
+
 #define POLLING_TIMEOUT		1000	/*1 second*/
 #define MAX_CONNECTION		5
-
-#define _DEBUG
 
 int main(int argc, char **argv)
 {
@@ -55,7 +55,7 @@ int main(int argc, char **argv)
 		case 11:
 		case 12:
 		default:
-			fprintf ((callReturn) ? stderr : stdout, "TCP_server_listen() [%d]: %s\n", callReturn, strerror (errno));
+			callResult ("TCP_server_listen");
 			return 1;
 
 		#ifdef _DEBUG
@@ -82,20 +82,35 @@ int main(int argc, char **argv)
 			if 		(PM_watchlist_check (server->fd))
 			{
 				//new client is connecting				
-				callReturn = TCP_connection_accept (server, client);
-				#ifdef _DEBUG 
-					fprintf (callReturn ? stderr : stdout, "TCP_connection_accept() [%d]: %s\n", callReturn, strerror (errno)); 
-				#endif
+				callReturn = TCP_connection_accept (server, &client);
+				#ifdef _DEBUG
+					callResult ("TCP_connection_accept");
+				#endif				
 				if (callReturn)	return 1;
 				
 				printf ("Client %s:%u connected.\nConnecting to %s:%u ...\n", client->address, client->port, connection[0]->address, connection[0]->port);
 				
+				
 				//attempt connection to the other side
 				callReturn = TCP_connection_connect (connection[0]);
-				#ifdef _DEBUG 
-					fprintf (callReturn ? stderr : stdout, "TCP_connection_connect() [%d]: %s\n", callReturn, strerror (errno)); 
+				#ifdef _DEBUG
+					callResult ("TCP_connection_connect");
 				#endif
-				if (callReturn)	return 1;
+				if (callReturn == 11 && errno == ECONNREFUSED)
+				{
+					// No answer, quit current connection					
+					callReturn = TCP_connection_close (client);
+					#ifdef _DEBUG
+						callResult ("TCP_connection_close");
+					#endif					
+				}
+				else if (callReturn)
+					return 1;
+				else
+				{
+					; //now do something
+				}
+				
 				
 				PM_watchlist_clear (server->fd);
 			}

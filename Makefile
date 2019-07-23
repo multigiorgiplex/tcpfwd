@@ -2,7 +2,6 @@ TARGET=tcpfwd
 LIBS=
 CC=gcc
 STRIP=strip
-CFLAGS=$(WARNINGS) $(DEBUG)
 
 #https://www.gnu.org/software/make/manual/make.html#Wildcard-Function
 _objects=$(patsubst %.c,%.o,$(wildcard *.c))
@@ -13,7 +12,7 @@ default:
 
 all: $(TARGET)
 
-debug: CFLAGS=-g3
+debug: CFLAGS=-g3 -D_DEBUG
 debug: $(TARGET)
 
 release: CFLAGS=-g0 -Wall

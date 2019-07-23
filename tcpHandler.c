@@ -20,10 +20,10 @@ tcpServer * TCP_server_init ()
 		
 	memset (p, 0, sizeof (tcpServer));
 	
-	return (tcpServer *) p;
+	return p;
 }
 
-tcpConnection * TCP_connection_init ()
+tcpConnection * TCP_connection_init ()		//TODO consider defining {tcpConnection *} as a standalone type.
 {
 	void * p;
 	
@@ -33,7 +33,12 @@ tcpConnection * TCP_connection_init ()
 		
 	memset (p, 0, sizeof (tcpConnection));
 	
-	return (tcpConnection *) p;
+	return p;
+}
+
+void TCP_connection_destroy (tcpConnection * conn)
+{
+	free (conn);
 }
 
 int TCP_server_parse_input (tcpServer * srv, char * address, unsigned port)
@@ -116,24 +121,34 @@ int TCP_connection_connect (tcpConnection * cnt)
 	return 0;
 }
 
-int TCP_connection_accept (tcpServer * srv, tcpConnection * client)
+int TCP_connection_accept (tcpServer * srv, tcpConnection ** client)
 {
-	socklen_t socket_data_len;
+	socklen_t socket_data_len = sizeof (struct sockaddr);
+	tcpConnection * client_local;
 	
-	client = TCP_connection_init();
-	//TODO if client == 0
-	if (client == 0) return 1;
+	client_local = TCP_connection_init();
+	if (client_local == 0) return 1;
 	
-	client->fd = accept (srv->fd, (struct sockaddr *) &(client->socket_data), &socket_data_len);	//TODO accept does no copy infos on client->socket_data
-	if (socket_data_len != sizeof (client->socket_data))
-		//;//TODO do someting
+	client_local->fd = accept (srv->fd, (struct sockaddr *) &(client_local->socket_data), &socket_data_len);
+	if (client_local->fd == -1)
 		return 10;
-				
-	if (client->fd == -1)
+	if (socket_data_len != sizeof (client_local->socket_data))
 		return 20;
-		
-	strcpy (client->address, inet_ntoa (client->socket_data.sin_addr));
-	client->port = ntohs (client->socket_data.sin_port);
+	
+	strcpy (client_local->address, inet_ntoa (client_local->socket_data.sin_addr));
+	client_local->port = ntohs (client_local->socket_data.sin_port);
+	
+	*client = client_local;	//return
 
+	return 0;
+}
+
+int TCP_connection_close (tcpConnection * connection)
+{
+	if (shutdown (connection->fd, SHUT_RDWR) == -1)
+		return 1;
+		
+	TCP_connection_destroy (connection);
+	
 	return 0;
 }
