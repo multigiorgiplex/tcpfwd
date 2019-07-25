@@ -7,21 +7,11 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <errno.h>
 
 
+char _tcp_recv_send_buffer[TCP_BUFFER_LENGHT];	//buffer linked to tcpConnectiob->buffer
 
-tcpServer * TCP_server_init ()
-{
-	void * p;
-	
-	p = malloc (sizeof (tcpServer));
-	if (p == 0)
-		return 0;
-		
-	memset (p, 0, sizeof (tcpServer));
-	
-	return p;
-}
 
 tcpConnection * TCP_connection_init ()		//TODO consider defining {tcpConnection *} as a standalone type.
 {
@@ -36,31 +26,8 @@ tcpConnection * TCP_connection_init ()		//TODO consider defining {tcpConnection 
 	return p;
 }
 
-void TCP_connection_destroy (tcpConnection * conn)
-{
-	free (conn);
-}
 
-int TCP_server_parse_input (tcpServer * srv, char * address, unsigned port)
-{
-	struct sockaddr_in	socket_address_INET;
-	struct in_addr		ip;
-
-	if (!inet_aton (address, &ip))
-		return 10;	//invalid address
-
-	strcpy (srv->listen_address, inet_ntoa(ip));	//reconvert in string the previously converted address so it's possible to have a "beautyfied" output
-	srv->listen_port = port;
-		
-	socket_address_INET.sin_family	= AF_INET;
-	socket_address_INET.sin_port	= htons (port);	//switch endiannes
-	socket_address_INET.sin_addr	= ip;
-
-	memcpy (&(srv->socket_data), &socket_address_INET, sizeof (struct sockaddr_in));
-	return 0;
-}
-
-int TCP_server_listen (tcpServer * srv)
+int TCP_connection_listen (tcpConnection * srv)
 {
 	//open a socket
 	srv->fd = socket (AF_INET, SOCK_STREAM, 0);
@@ -121,7 +88,7 @@ int TCP_connection_connect (tcpConnection * cnt)
 	return 0;
 }
 
-int TCP_connection_accept (tcpServer * srv, tcpConnection ** client)
+int TCP_connection_accept (tcpConnection * srv, tcpConnection ** client)
 {
 	socklen_t socket_data_len = sizeof (struct sockaddr);
 	tcpConnection * client_local;
@@ -148,7 +115,42 @@ int TCP_connection_close (tcpConnection * connection)
 	if (shutdown (connection->fd, SHUT_RDWR) == -1)
 		return 1;
 		
-	TCP_connection_destroy (connection);
+	free (connection);
 	
+	return 0;
+}
+
+int TCP_connection_receive (tcpConnection * conn)
+{
+	ssize_t r;
+
+	r = recv (conn->fd, _tcp_recv_send_buffer, TCP_BUFFER_LENGHT, 0);
+	if (r == -1)
+		return 10;
+	if (r == 0)	//peer disconnected
+		return -10;
+
+	conn->buffer		= _tcp_recv_send_buffer;
+	conn->buffer_len	= r;
+
+	return 0;
+}
+
+int TCP_connection_send (tcpConnection * conn)
+{
+	ssize_t w;
+
+	w = send (conn->fd, conn->buffer, conn->buffer_len, 0);
+	if (w == -1)
+		return 10;
+	if (w != conn->buffer_len)
+	{
+		errno = 42;	//TODO find appropriate value
+		return 11;
+	}
+
+	conn->buffer		= 0;
+	conn->buffer_len	= 0;
+
 	return 0;
 }

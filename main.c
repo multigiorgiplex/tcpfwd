@@ -18,17 +18,16 @@ extern FILE *stderr;
 int main(int argc, char **argv)
 {
 	CLI_Arguments arguments;
-	tcpServer * server;
+	tcpConnection * server;
 	tcpConnection * client;
 	tcpConnection * connection[MAX_CONNECTION];
 	
-	int watchlistCounter;
-	
+	int watchlistCounter;	
 	int callReturn;
 
-	server = TCP_server_init (); 
-	connection[0] = TCP_connection_init ();
 	CLI_init ();
+	server = TCP_connection_init ();
+	connection[0] = TCP_connection_init ();
 	PM_init (POLLING_TIMEOUT);
 	
 	CLI_welcomeMessage ();
@@ -37,7 +36,7 @@ int main(int argc, char **argv)
 		return 1;
 
 	//~ CLI_printArguments (arguments);
-	if (TCP_server_parse_input(server, arguments.localAddress, arguments.localPort) == 10)
+	if (TCP_connection_parse_input(server, arguments.localAddress, arguments.localPort) == 10)
 	{
 		printf ("Invalid local listening IP address (-la) %s.\n", arguments.localAddress);
 		return 1;
@@ -48,7 +47,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	callReturn = TCP_server_listen (server);
+	callReturn = TCP_connection_listen (server);
 	switch (callReturn)
 	{
 		case 10:
@@ -60,16 +59,15 @@ int main(int argc, char **argv)
 
 		#ifdef _DEBUG
 		case 0:
-			printf ("Listening on %s:%u ...\n", server->listen_address, server->listen_port);
+			printf ("Listening on %s:%u ...\n", server->address, server->port);
 			break;
 		#endif
 	}
 
+	PM_watchlist_add (server->fd);
+
 	while (1)
 	{
-		PM_watchlist_reset ();
-		PM_watchlist_add (server->fd);
-
 		watchlistCounter = PM_watchlist_run ();
 		if (watchlistCounter == -1)
 		{
@@ -79,7 +77,7 @@ int main(int argc, char **argv)
 		
 		while (watchlistCounter--)
 		{
-			if 		(PM_watchlist_check (server->fd))
+			if (server && PM_watchlist_check (server->fd))
 			{
 				//new client is connecting				
 				callReturn = TCP_connection_accept (server, &client);
@@ -87,11 +85,12 @@ int main(int argc, char **argv)
 					callResult ("TCP_connection_accept");
 				#endif				
 				if (callReturn)	return 1;
-				
+
+				PM_watchlist_add (client->fd);
 				printf ("Client %s:%u connected.\nConnecting to %s:%u ...\n", client->address, client->port, connection[0]->address, connection[0]->port);
 				
-				
 				//attempt connection to the other side
+				
 				callReturn = TCP_connection_connect (connection[0]);
 				#ifdef _DEBUG
 					callResult ("TCP_connection_connect");
@@ -109,11 +108,51 @@ int main(int argc, char **argv)
 				else
 				{
 					; //now do something
-				}
-				
+					PM_watchlist_add (connection[0]->fd);
+				}				
 				
 				PM_watchlist_clear (server->fd);
 			}
+
+			if (client && PM_watchlist_check (client->fd))
+			{
+				printf ("Data in from client!\n");
+
+				callReturn = TCP_connection_receive (client);
+				#ifdef _DEBUG
+					callResult ("TCP_connection_receive");
+				#endif
+				if (callReturn > 0)
+					return 1;
+				if (callReturn == -10)
+				{
+					printf ("Client disconnected!\n");
+					TCP_connection_close (client);
+					TCP_connection_close (server);	//?
+					return 0;
+				}
+				printf ("Received from %s:%u - %d bytes: %s\n", client->address, client->port, client->buffer_len, client->buffer);
+
+
+				connection[0]->buffer		= client->buffer;
+				connection[0]->buffer_len	= client->buffer_len;
+				callReturn = TCP_connection_send (connection[0]);
+				#ifdef _DEBUG
+					callResult ("TCP_connection_send");
+				#endif
+				if (callReturn)
+					return 1;
+
+				
+				PM_watchlist_clear (client->fd);
+			}			
+			/*
+			if (connection[0] && PM_watchlist_check (connection[0]->fd))
+			{
+				printf ("Dati in from connection[0]!\n");
+				PM_watchlist_clear (connection[0]->fd);
+			}
+			*/		
 		}
 	}
 	
