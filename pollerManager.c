@@ -107,7 +107,7 @@ void PM_watchlist_remove (int fd)
 		free (curr);
 	}
 
-	
+	_PM_compile_watchlist ();
 }
 
 int PM_watchlist_run ()	//TODO: manage writefs and exceptfs

@@ -5,7 +5,7 @@
 
 
 #define TCP_LISTEN_BACKLOG	0	/*see man 2 listen*/
-#define TCP_BUFFER_LENGHT	1024
+#define TCP_BUFFER_LENGHT	4096
 
 
 typedef struct {
@@ -15,6 +15,7 @@ typedef struct {
 	struct sockaddr_in	socket_data;
 	char *				buffer;
 	ssize_t				buffer_len;	//lenght of data inside buffer (read/write)
+	char				_tcp_recv_buffer[TCP_BUFFER_LENGHT];	//actual  buffer
 } tcpConnection;
 
 
@@ -23,6 +24,7 @@ int				TCP_connection_listen		(tcpConnection *);
 int				TCP_connection_parse_input	(tcpConnection *, char *, unsigned);
 int				TCP_connection_connect		(tcpConnection *);
 int				TCP_connection_accept		(tcpConnection *, tcpConnection **);
+void			TCP_connection_destroy		(tcpConnection *);
 int				TCP_connection_close		(tcpConnection *);
 int				TCP_connection_receive		(tcpConnection *);
 int				TCP_connection_send			(tcpConnection *);

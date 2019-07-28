@@ -10,12 +10,9 @@
 #include <errno.h>
 
 
-char _tcp_recv_send_buffer[TCP_BUFFER_LENGHT];	//buffer linked to tcpConnectiob->buffer
-
-
 tcpConnection * TCP_connection_init ()		//TODO consider defining {tcpConnection *} as a standalone type.
 {
-	void * p;
+	tcpConnection * p;
 	
 	p = malloc (sizeof (tcpConnection));
 	if (p == 0)
@@ -115,22 +112,28 @@ int TCP_connection_close (tcpConnection * connection)
 	if (shutdown (connection->fd, SHUT_RDWR) == -1)
 		return 1;
 		
-	free (connection);
+	TCP_connection_destroy (connection);
 	
 	return 0;
+}
+
+void TCP_connection_destroy (tcpConnection * conn)
+{
+	if (conn)
+		free (conn);
 }
 
 int TCP_connection_receive (tcpConnection * conn)
 {
 	ssize_t r;
 
-	r = recv (conn->fd, _tcp_recv_send_buffer, TCP_BUFFER_LENGHT, 0);
+	r = recv (conn->fd, conn->_tcp_recv_buffer, TCP_BUFFER_LENGHT, 0);
 	if (r == -1)
 		return 10;
 	if (r == 0)	//peer disconnected
 		return -10;
 
-	conn->buffer		= _tcp_recv_send_buffer;
+	conn->buffer		= conn->_tcp_recv_buffer;
 	conn->buffer_len	= r;
 
 	return 0;
