@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include "common.h"
 #include "tcpHandler.h"
 #include "cliTasks.h"
@@ -14,11 +15,86 @@ extern FILE *stderr;
 #define callResult(functionName)		fprintf ((callReturn) ? stderr : stdout, functionName"() [%d]: %s\n", callReturn, strerror (callReturn ? errno : 0));
 
 #define POLLING_TIMEOUT		1000	/*1 second*/
-#define MAX_CONNECTION		5
+#define MAX_CONNECTION		20
+
+struct _ELlink {		//main.c use only
+	ELlink *			link;
+	struct _ELlink *	next;
+};
 
 int callReturn;
 struct callback_vector cbv;	//use for everything
+struct _ELlink	links;
+unsigned int 	links_num;
 
+
+void _ELlink_add (ELlink * l)
+{
+	struct _ELlink * p;
+	
+	if (links.link == 0)	//first
+	{
+		links.link = l;
+		links_num = 1;
+		return;
+	}
+
+	p = &links; //not = links.next; to avoid segmentation faults
+	while (p->next)
+		p = p->next;
+
+	p->next = malloc (sizeof (struct _ELlink));
+	p = p->next;
+
+	p->link = l;
+	p->next = 0;
+	links_num++;
+}
+
+/*Returns removed element "->next" pointer*/
+struct _ELlink * _ELlink_remove (ELlink * l)
+{
+	struct _ELlink * p;
+	struct _ELlink * p_old;
+	
+	if (links.link == l)	//first
+	{
+		p = links.next;
+		if (p)
+		{
+			links.link = p->link;
+			links.next = p->next;
+			links_num--;
+		}
+		else 	//clear the list
+		{
+			links.link = 0;
+			if (links_num != 1) return 0; //die()
+			links_num = 0;
+			return 0;
+		}
+	}
+
+	p = &links;	//not = links.next; to avoid segmentation faults
+	while (p->link != l)
+		if (p->next)
+		{
+			p_old = p;
+			p = p->next;
+		}
+		else
+			return 0;	//not found
+
+	if (p->next)
+		p_old->next = p->next;
+	else 	//last one
+		p_old->next = 0;
+		
+	free (p);
+	links_num--;
+
+	return p_old->next;
+}
 
 int main(int argc, char **argv)
 {
@@ -26,14 +102,17 @@ int main(int argc, char **argv)
 	tcpConnection * server;
 	tcpConnection * inbound_connection;
 	tcpConnection * outbound_connection;
-	ELlink * link[1];
+	ELlink * temp_link;
+	struct _ELlink * link_list;
 	
 	int watchlistCounter;	
 
 	CLI_init ();
 	PM_init (POLLING_TIMEOUT);
 	EL_init ();
-	link[0] = 0;
+	links.link = 0;
+	links.next = 0;
+	temp_link = 0;
 
 	//populate callback vector
 	cbv.check	= &PM_watchlist_check;
@@ -97,7 +176,7 @@ int main(int argc, char **argv)
 				if (callReturn)	return 1;
 
 				//check if we're busy
-				if (link[0])				//TODO add queue, separate internal tcp buffers
+				if (links_num == MAX_CONNECTION)				//TODO add queue, separate internal tcp buffers
 				{
 					printf ("Declining connection, we're busy now...\n");
 					TCP_connection_close (inbound_connection);
@@ -145,9 +224,10 @@ int main(int argc, char **argv)
 
 					//link together endpoints
 					printf ("Linking %s:%u  <==>  %s:%u\n", inbound_connection->address, inbound_connection->port, outbound_connection->address, outbound_connection->port);
-					link[0] = EL_link_open (inbound_connection, outbound_connection, cbv);
-					if (link[0] == 0)
+					temp_link = EL_link_open (inbound_connection, outbound_connection, cbv);
+					if (temp_link == 0)
 						return 1;
+					_ELlink_add (temp_link);
 					
 					//clear pointers for next round
 					inbound_connection = 0;
@@ -155,13 +235,23 @@ int main(int argc, char **argv)
 				}
 			}
 
-			if (EL_link_check (link[0]))
+			link_list = &links;
+			while (link_list && link_list->link)
 			{
-				callReturn = EL_link_manage (link[0]);
-				if (callReturn == 20)	//link destroyed
-					link[0] = 0;
-				else if (callReturn)		//some errors
-					return 1;
+				if (EL_link_check (link_list->link))
+				{
+					callReturn = EL_link_manage (link_list->link);
+					if (callReturn == 20)	//link destroyed
+					{
+						link_list = _ELlink_remove (link_list->link);
+					}
+					else if (callReturn)	//some errors
+						return 1;
+				}
+				else
+				{
+					link_list = link_list->next;
+				}			
 			}
 		}
 	}
