@@ -3,7 +3,7 @@
 #include "endpointLinker.h"
 #include <stdlib.h>
 #include "tcpHandler.h"
-#include "ioModule.h"
+#include "cliTasks.h"
 
 	#include <stdio.h>	//TODO: remove, use ioModule.c
 

@@ -7,7 +7,6 @@
 #include "cliTasks.h"
 #include "pollerManager.h"
 #include "endpointLinker.h"
-#include "ioModule.h"
 
 extern FILE *stdin;
 extern FILE *stdout;

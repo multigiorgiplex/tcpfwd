@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <errno.h>
 
+extern FILE *stdin;
+extern FILE *stdout;
+extern FILE *stderr;
+
 
 void CLI_welcomeMessage ()
 {
@@ -119,3 +123,14 @@ void CLI_init ()
 {
 	;
 }
+
+int CLI_die (char * file, int line, char * function, int result, int _errno)
+{
+	if (_errno)
+		fprintf (stderr, "[%s:%d] @ %s() = %d - %s (errno: %d)\n", file, line, function, result, strerror (_errno), _errno);
+	else
+		fprintf (stderr, "[%s:%d] @ %s() = %d\n", file, line, function, result);	
+	
+	return result;
+}
+
