@@ -110,7 +110,10 @@ int TCP_connection_accept (tcpConnection * srv, tcpConnection ** client)
 int TCP_connection_close (tcpConnection * connection)
 {
 	if (shutdown (connection->fd, SHUT_RDWR) == -1)
-		return 1;
+		return 10;
+		
+	if (close (connection->fd) == -1)
+		return 20;
 		
 	TCP_connection_destroy (connection);
 	

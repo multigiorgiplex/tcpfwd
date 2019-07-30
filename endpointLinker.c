@@ -62,7 +62,7 @@ int EL_link_manage (ELlink * l)
 		l->cbv[!source_ep].remove (l->endpoint[!source_ep]->fd);
 
 		//connection destroy
-		l->cbv[source_ep].destroy (l->endpoint[source_ep]);
+		l->cbv[source_ep].close (l->endpoint[source_ep]);
 		l->cbv[!source_ep].close (l->endpoint[!source_ep]);
 
 		//link destroy
