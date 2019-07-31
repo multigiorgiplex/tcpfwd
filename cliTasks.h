@@ -22,8 +22,9 @@ typedef struct {
 } CLI_Arguments;
 
 int callReturn;
-#define die(functionName, functionResult, functionErrno)		return	CLI_die (__FILE__, __LINE__, functionName, functionResult, functionErrno);
-#define die_soft(functionName, functionResult, functionErrno)			CLI_die (__FILE__, __LINE__, functionName, functionResult, functionErrno);		//Do not return
+#define die(functionName, functionResult, functionErrno)						return	CLI_die (__FILE__, __LINE__, functionName, functionResult, functionErrno);
+#define die_soft(functionName, functionResult, functionErrno)							CLI_die (__FILE__, __LINE__, functionName, functionResult, functionErrno);		//Do not return
+#define die_return(functionName, functionResult, functionErrno, returnValue)		{	CLI_die (__FILE__, __LINE__, functionName, functionResult, functionErrno); return returnValue;	}
 
 void			CLI_init				(void);
 void			CLI_welcomeMessage 		(void);

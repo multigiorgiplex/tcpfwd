@@ -3,6 +3,7 @@
 #include "pollerManager.h"
 #include <sys/select.h>
 #include <stdlib.h>
+#include "signalHandler.h"
 
 
 struct _fd {	//internal use only
@@ -14,8 +15,9 @@ struct _fd {	//internal use only
 fd_set PM_watchlist;
 fd_set _PM_watchlist_compiled;
 int PM_watchlist_max_fd;
-struct timeval PM_timeout;
+struct timespec PM_timeout;
 struct _fd * fds;
+SH_signalMask PM_signalMask;		//Signals to avoid interrupting to when calling PM_watchlist_run()
 
 
 static void _PM_compile_watchlist (void)	//internal
@@ -36,8 +38,9 @@ static void _PM_compile_watchlist (void)	//internal
 void PM_init (unsigned watch_timeout)
 {
 	PM_timeout.tv_sec	= watch_timeout / 1000;
-	PM_timeout.tv_usec	= (watch_timeout % 1000) * 1000;
+	PM_timeout.tv_nsec	= (watch_timeout % 1000) * 1000000;
 	fds = 0;
+	SH_clearSignalMask (&PM_signalMask);
 }
 
 void PM_watchlist_add (int fd)
@@ -112,12 +115,12 @@ void PM_watchlist_remove (int fd)
 
 int PM_watchlist_run ()	//TODO: manage writefs and exceptfs
 {
-	struct timeval timeout = PM_timeout;
+	struct timespec timeout = PM_timeout;
 
 	//reset
 	PM_watchlist = _PM_watchlist_compiled;
 	
-	return select (PM_watchlist_max_fd+1, &PM_watchlist, 0, 0, &timeout);
+	return pselect (PM_watchlist_max_fd+1, &PM_watchlist, 0, 0, &timeout, &(PM_signalMask.signals));
 }
 
 void PM_watchlist_clear (int fd)
@@ -128,4 +131,14 @@ void PM_watchlist_clear (int fd)
 char PM_watchlist_check (int fd)
 {
 	return (FD_ISSET (fd, &PM_watchlist) == 1);
+}
+
+void PM_setSignalMask (SH_signalMask m)
+{
+	PM_signalMask = m;
+}
+
+SH_signalMask PM_getSignalMask ()
+{
+	return PM_signalMask;
 }

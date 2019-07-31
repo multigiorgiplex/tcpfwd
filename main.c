@@ -7,6 +7,7 @@
 #include "cliTasks.h"
 #include "pollerManager.h"
 #include "endpointLinker.h"
+#include "signalHandler.h"
 
 extern FILE *stdin;
 extern FILE *stdout;
@@ -93,6 +94,11 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 	return p_old->next;
 }
 
+void Signal (int s)	//TODO accessed when PM timeout is expired!
+{
+	printf ("Received signal: %d\n", s);
+}
+
 int main(int argc, char **argv)
 {
 	CLI_Arguments arguments;
@@ -100,18 +106,22 @@ int main(int argc, char **argv)
 	tcpConnection * inbound_connection;
 	tcpConnection * outbound_connection;
 	ELlink * temp_link;
-	struct _ELlink * link_list;
-	
-	int watchlistCounter;	
+	struct _ELlink * link_list;	
+	int watchlistCounter;
+	SH_signalMask signal_mask;
 
+	//modules initialization
 	CLI_init ();
 	PM_init (POLLING_TIMEOUT);
 	EL_init ();
+	SH_init ();
+
+	//variables initialization
 	links.link = 0;
 	links.next = 0;
 	temp_link = 0;
 
-	//populate callback vector
+	//populate endpoint linker callback vector
 	cbv.check	= &PM_watchlist_check;
 	cbv.clear	= &PM_watchlist_clear;
 	cbv.remove	= &PM_watchlist_remove;
@@ -119,6 +129,14 @@ int main(int argc, char **argv)
 	cbv.recv	= &TCP_connection_receive;
 	cbv.send	= &TCP_connection_send;
 	cbv.destroy	= &TCP_connection_destroy;
+
+	//setting up signals
+	if (SH_clearSignalMask (&signal_mask)) return 1;					//clear signal mask
+	if (SH_addSignalHandler (&Signal, SIGINT)) return 1;				//add a signal function handler to SIGINT (keyboard interrupt)
+	if (SH_addSignalToMask (&signal_mask, SIGINT)) return 1;			//populate signal mask with SIGINT
+	PM_setSignalMask (signal_mask);										//apply signal mask to pollerManager (so SIGINT is ignored)
+
+	
 	
 	CLI_welcomeMessage ();
 	arguments = CLI_validateArguments (argc, argv);
