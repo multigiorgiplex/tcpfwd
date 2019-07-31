@@ -6,13 +6,15 @@
 #include "cliTasks.h"
 
 	#include <stdio.h>	//TODO: remove, use ioModule.c
+	
+unsigned int link_id_counter = 0;
 
 void EL_init ()
 {
 	;
 }
 
-ELlink * EL_link_open (tcpConnection * a, tcpConnection * b, struct callback_vector cbv)
+ELlink * EL_link_open (tcpConnection * in, tcpConnection * out, struct callback_vector cbv)
 {
 	ELlink * p;
 	
@@ -20,10 +22,12 @@ ELlink * EL_link_open (tcpConnection * a, tcpConnection * b, struct callback_vec
 	if (p == 0)
 		return 0;
 	
-	p->endpoint[0]	= a;
-	p->endpoint[1]	= b;
+	p->endpoint[0]	= in;
+	p->endpoint[1]	= out;
 	p->cbv[0]		= cbv;
 	p->cbv[1]		= cbv;
+	
+	p->id = link_id_counter++;
 	
 	return p;
 }
@@ -55,7 +59,7 @@ int EL_link_manage (ELlink * l)
 		return 0;
 	}
 	if (callReturn == -10)
-	{
+	{	
 		printf ("%s:%u disconnected. Closing other endpoint. Destroy link.\n", l->endpoint[source_ep]->address, l->endpoint[source_ep]->port);
 		//watchlist remove
 		l->cbv[source_ep].remove (l->endpoint[source_ep]->fd);
@@ -69,15 +73,19 @@ int EL_link_manage (ELlink * l)
 		free (l);
 
 		return 20;
-	}
+	}	
 
 	//data arrangment
 	l->endpoint[!source_ep]->buffer		= l->endpoint[source_ep]->buffer;
 	l->endpoint[!source_ep]->buffer_len	= l->endpoint[source_ep]->buffer_len;
 	
+	//update statistics
+	l->transferred[source_ep].download += l->endpoint[source_ep]->buffer_len;
+	l->transferred[!source_ep].upload += l->endpoint[!source_ep]->buffer_len;
+	
 	//data send
 	callReturn = l->cbv[!source_ep].send (l->endpoint[!source_ep]);
-	if (callReturn) die ("struct callback_vector.send", callReturn, errno);
+	if (callReturn) die ("struct callback_vector.send", callReturn, errno);	
 	
 	return 0;
 }

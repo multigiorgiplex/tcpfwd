@@ -101,6 +101,7 @@ int main(int argc, char **argv)
 	tcpConnection * outbound_connection;
 	ELlink * temp_link;
 	struct _ELlink * link_list;
+	struct data_exchange total_data_transferred;
 	
 	int watchlistCounter;	
 
@@ -110,6 +111,9 @@ int main(int argc, char **argv)
 	links.link = 0;
 	links.next = 0;
 	temp_link = 0;
+	total_data_transferred.upload = 0;
+	total_data_transferred.download = 0;
+	
 
 	//populate callback vector
 	cbv.check	= &PM_watchlist_check;
@@ -203,9 +207,6 @@ int main(int argc, char **argv)
 					return 1;
 				else
 				{
-					; //now do something
-					//PM_watchlist_add (connection[0]->fd);
-
 					PM_watchlist_add (inbound_connection->fd);
 					PM_watchlist_add (outbound_connection->fd);
 
@@ -229,15 +230,23 @@ int main(int argc, char **argv)
 					callReturn = EL_link_manage (link_list->link);
 					if (callReturn == 20)	//link destroyed
 					{
-						link_list = _ELlink_remove (link_list->link);
+						link_list = _ELlink_remove (link_list->link);	//returns next element "->next" pointer
 					}
 					else if (callReturn)	//some errors
+					{
 						die ("EL_link_manage", callReturn, errno);
+					}
+					else //0
+					{
+						total_data_transferred.upload	+= link_list->link->transferred[ENDPOINT_IN].upload;
+						total_data_transferred.download	+= link_list->link->transferred[ENDPOINT_IN].download;
+						CLI_printTotalTransferred (&total_data_transferred);
+					}
 				}
 				else
 				{
 					link_list = link_list->next;
-				}			
+				}
 			}
 		}
 	}

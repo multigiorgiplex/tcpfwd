@@ -1,11 +1,12 @@
 /*Handles Command Line Interface tasks*/
 
 #include "cliTasks.h"
-#include "common.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include "common.h"
+#include "endpointLinker.h"
 
 extern FILE *stdin;
 extern FILE *stdout;
@@ -133,4 +134,51 @@ int CLI_die (char * file, int line, char * function, int result, int _errno)
 	
 	return result;
 }
+
+void CLI_printTotalTransferred (struct data_exchange * data)			//TODO consider ncurses adoption!
+{
+	FILE * dest = stdout;
+	unsigned int up, dw;
+	char b[]	= "B  ";
+	char kb[]	= "kiB";
+	char mb[]	= "MiB";
+	char * up_unit, * dw_unit;
+	
+	if (data->download >= 1048576)
+	{
+		dw = data->download /*>> 20*/;
+		dw_unit = mb;
+	}
+	else if (data->download >= 1024)
+	{
+		dw = data->download >> 10;
+		dw_unit = kb;
+	}
+	else
+	{
+		dw = data->download;
+		dw_unit = b;
+	}
+	
+	if (data->upload >= 1048576)
+	{
+		up = data->upload/* >> 20*/;
+		up_unit = mb;
+	}
+	else if (data->upload >= 1024)
+	{
+		up = data->upload >> 10;
+		up_unit = kb;
+	}
+	else
+	{
+		up = data->upload;
+		up_unit = b;
+	}
+
+	fprintf (dest,	"\rTotal Upstream: % 6u %s, Downstream: % 6u %s", up, up_unit, dw, dw_unit);
+	fflush (dest);
+}
+
+
 
