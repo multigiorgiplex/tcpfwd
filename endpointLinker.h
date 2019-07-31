@@ -3,6 +3,9 @@
 
 #include "tcpHandler.h"
 
+#define EL_ENDPOINT_IN		0
+#define EL_ENDPOINT_OUT		1
+
 struct callback_vector
 {
 	//pollerManager.c
@@ -25,6 +28,7 @@ typedef struct {
 void		EL_init				(void);
 ELlink *	EL_link_open		(tcpConnection *, tcpConnection *, struct callback_vector);
 int			EL_link_manage		(ELlink *);
+int			EL_link_destroy		(ELlink *);
 char		EL_link_check		(ELlink *);
 
 #endif

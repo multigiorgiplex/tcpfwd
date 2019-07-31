@@ -24,6 +24,7 @@ struct _ELlink {		//main.c use only
 struct callback_vector cbv;	//use for everything
 struct _ELlink	links;
 unsigned int 	links_num;
+tcpConnection * server;		//main() server
 
 
 void _ELlink_add (ELlink * l)
@@ -94,15 +95,28 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 	return p_old->next;
 }
 
+void _ELlink_destroy (struct _ELlink * n)
+{
+	while (n)
+	{
+		printf ("links_num: %d\n", links_num);
+		EL_link_destroy (n->link);
+		
+		n = _ELlink_remove (n->link);
+	}
+}
+
 void Signal (int s)	//TODO accessed when PM timeout is expired!
 {
-	printf ("Received signal: %d\n", s);
+	printf ("Received signal: %d, closing...\n", s);
+	_ELlink_destroy (&links);
+	TCP_connection_close (server);
+	exit (EXIT_SUCCESS);
 }
 
 int main(int argc, char **argv)
 {
-	CLI_Arguments arguments;
-	tcpConnection * server;
+	CLI_Arguments arguments;	
 	tcpConnection * inbound_connection;
 	tcpConnection * outbound_connection;
 	ELlink * temp_link;

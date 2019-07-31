@@ -57,16 +57,8 @@ int EL_link_manage (ELlink * l)
 	if (callReturn == -10)
 	{
 		printf ("%s:%u disconnected. Closing other endpoint. Destroy link.\n", l->endpoint[source_ep]->address, l->endpoint[source_ep]->port);
-		//watchlist remove
-		l->cbv[source_ep].remove (l->endpoint[source_ep]->fd);
-		l->cbv[!source_ep].remove (l->endpoint[!source_ep]->fd);
 
-		//connection destroy
-		l->cbv[source_ep].close (l->endpoint[source_ep]);
-		l->cbv[!source_ep].close (l->endpoint[!source_ep]);
-
-		//link destroy
-		free (l);
+		if (EL_link_destroy (l)) return 21;
 
 		return 20;
 	}
@@ -79,6 +71,27 @@ int EL_link_manage (ELlink * l)
 	callReturn = l->cbv[!source_ep].send (l->endpoint[!source_ep]);
 	if (callReturn) die ("struct callback_vector.send", callReturn, errno);
 	
+	return 0;
+}
+
+int EL_link_destroy (ELlink * l)
+{
+	if (!l)
+		return 10;
+		
+	//watchlist remove
+	l->cbv[EL_ENDPOINT_IN].remove (l->endpoint[EL_ENDPOINT_IN]->fd);
+	l->cbv[EL_ENDPOINT_OUT].remove (l->endpoint[EL_ENDPOINT_OUT]->fd);
+
+	//connection destroy
+	callReturn = l->cbv[EL_ENDPOINT_IN].close (l->endpoint[EL_ENDPOINT_IN]);
+	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 1);
+	callReturn = l->cbv[EL_ENDPOINT_OUT].close (l->endpoint[EL_ENDPOINT_OUT]);
+	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 2);
+	
+	//link destroy
+	free (l);
+
 	return 0;
 }
 
