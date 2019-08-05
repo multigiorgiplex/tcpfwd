@@ -1,0 +1,62 @@
+TODO LIST
+
+KNOWN BUGS
+2019/08/05:	
+			Started with: tcpfwd -ra 127.0.0.1 -rp 3000 -la 0 -lp 2001
+			
+			Open netcat listening on 127.0.0.1:3000,			
+			Open netcat connecting to 127.0.0.1:2001
+				Client 127.0.0.1:50252 connected.
+				Connecting to 127.0.0.1:3000 ...
+				Linking 127.0.0.1:50252  <==>  127.0.0.1:3000
+				
+			All OK, connecting another instance of netcat on 127.0.0.1:2001
+				Client 127.0.0.1:50340 connected.
+				Connecting to 127.0.0.1:3000 ...
+				
+			Some time... CTRL+C on netcat listening on port 3000
+				127.0.0.1:3000 disconnected. Closing other endpoint. Destroy link.
+				[endpointLinker.c:90] @ struct callback_vector.close() = 10 - Transport endpoint is not connected (errno: 107)
+				[main.c:267] @ EL_link_manage() = 21 - Transport endpoint is not connected (errno: 107)
+				[Inferior 1 (process 2448) exited with code 025]
+
+
+2019/08/05:
+			Started with: tcpfwd -la 0 -lp 5201 -ra 192.168.0.16 -rp 5201
+			
+				Listening on 0.0.0.0:5201 ...
+				
+			Launching iper3: iperf3 -c 127.0.0.1	
+				Client 127.0.0.1:35736 connected.
+				Connecting to 192.168.0.16:5201 ...
+				Linking 127.0.0.1:35736  <==>  192.168.0.16:5201
+				Client 127.0.0.1:35740 connected.
+				Connecting to 192.168.0.16:5201 ...
+				Linking 127.0.0.1:35740  <==>  192.168.0.16:5201
+				[endpointLinker.c:72] @ struct callback_vector.send() = 11 - No message of desired type (errno: 42)
+				[main.c:269] @ EL_link_manage() = 11 - No message of desired type (errno: 42)
+				
+			Further investigation with gdb:
+				Breakpoint 1, TCP_connection_send (conn=0x55555555f860) at tcpHandler.c:154
+				154			errno = 42;	//TODO find appropriate value
+				(gdb) list
+				149		w = send (conn->fd, conn->buffer, conn->buffer_len, 0);
+				150		if (w == -1)
+				151			return 10;
+				152		if (w != conn->buffer_len)
+				153		{
+				154			errno = 42;	//TODO find appropriate value
+				155			return 11;
+				156		}
+				157	
+				158		conn->buffer		= 0;
+				(gdb) print w
+				$1 = 2454
+				(gdb) print conn->buffer_len
+				$2 = 4096
+
+
+			
+			
+			
+			

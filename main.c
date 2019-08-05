@@ -13,7 +13,7 @@ extern FILE *stdin;
 extern FILE *stdout;
 extern FILE *stderr;
 
-#define POLLING_TIMEOUT		1000	/*1 second*/
+#define POLLING_TIMEOUT		200		/*.2 second*/
 #define MAX_CONNECTION		20
 
 struct _ELlink {		//main.c use only
@@ -148,6 +148,8 @@ int main(int argc, char **argv)
 	if (SH_clearSignalMask (&signal_mask)) return 1;					//clear signal mask
 	if (SH_addSignalHandler (&Signal, SIGINT)) return 1;				//add a signal function handler to SIGINT (keyboard interrupt)
 	if (SH_addSignalToMask (&signal_mask, SIGINT)) return 1;			//populate signal mask with SIGINT
+	if (SH_addSignalHandler (&Signal, SIGTERM)) return 1;				//add a signal function handler to SIGTERM
+	if (SH_addSignalToMask (&signal_mask, SIGTERM)) return 1;			//populate signal mask with SIGTERM
 	PM_setSignalMask (signal_mask);										//apply signal mask to pollerManager (so SIGINT is ignored)
 
 	
