@@ -59,16 +59,18 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 	if (links.link == l)	//first
 	{
 		p = links.next;
-		if (p)
+		if (p)			//there is another element in the list, setting that element as the list new head
 		{
 			links.link = p->link;
 			links.next = p->next;
 			links_num--;
+			free (p);
+			return &links;
 		}
-		else 	//clear the list
+		else 			//only this element in the list, clear list
 		{
 			links.link = 0;
-			if (links_num != 1) return 0; //die()
+			if (links_num != 1) return 0; //die()	TODO assert
 			links_num = 0;
 			return 0;
 		}
@@ -76,6 +78,7 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 
 	p = &links;	//not = links.next; to avoid segmentation faults
 	while (p->link != l)
+	{
 		if (p->next)
 		{
 			p_old = p;
@@ -83,7 +86,8 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 		}
 		else
 			return 0;	//not found
-
+	}
+	
 	if (p->next)
 		p_old->next = p->next;
 	else 	//last one
@@ -95,21 +99,17 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 	return p_old->next;
 }
 
-void _ELlink_destroy (struct _ELlink * n)
-{
-	while (n)
-	{
-		printf ("links_num: %d\n", links_num);
-		EL_link_destroy (n->link);
-		
-		n = _ELlink_remove (n->link);
-	}
-}
-
 void Signal (int s)	//TODO accessed when PM timeout is expired!
 {
+	struct _ELlink * n = &links;
+	
 	printf ("Received signal: %d, closing...\n", s);
-	_ELlink_destroy (&links);
+	
+	while (n)	//ELlink list destroy
+	{
+		EL_link_destroy (n->link);		
+		n = _ELlink_remove (n->link);
+	}
 	TCP_connection_close (server);
 	exit (EXIT_SUCCESS);
 }
