@@ -4,75 +4,196 @@
 #include <stdlib.h>
 #include "tcpHandler.h"
 #include "cliTasks.h"
+#include "pollerManager.h"
 
-	#include <stdio.h>	//TODO: remove, use ioModule.c
+#ifdef _DEBUG
+#include <stdio.h>
+#endif
 
 void EL_init ()
 {
 	;
 }
 
-ELlink * EL_link_open (tcpConnection * a, tcpConnection * b, struct callback_vector cbv)
+/* Opens a link assigning given tcpConnectiona as endpoints and the same callback_vector to each of them*/
+ELlink * EL_link_open (tcpConnection * ep_in, tcpConnection * ep_out, struct callback_vector cbv)
 {
+	static unsigned int link_id = 0;
 	ELlink * p;
 	
 	p = malloc (sizeof (ELlink));
 	if (p == 0)
 		return 0;
-	
-	p->endpoint[0]	= a;
-	p->endpoint[1]	= b;
-	p->cbv[0]		= cbv;
-	p->cbv[1]		= cbv;
+
+	p->id								= ++link_id;
+	p->endpoint[EL_ENDPOINT_IN]			= ep_in;
+	p->endpoint[EL_ENDPOINT_OUT]		= ep_out;
+	p->cbv[EL_ENDPOINT_IN]				= cbv;
+	p->cbv[EL_ENDPOINT_OUT]				= cbv;
+	p->flag_sending[EL_ENDPOINT_IN]		= 0;
+	p->flag_sending[EL_ENDPOINT_OUT]	= 0;
 	
 	return p;
 }
 
+
 int EL_link_manage (ELlink * l)
 {
 	signed char source_ep = -1;
+	PM_watchlist_checked_t dummy_checked;
 
-	//check where is data available
-	if (l->cbv[0].check (l->endpoint[0]->fd))
-		source_ep = 0;
-	if (l->cbv[1].check (l->endpoint[1]->fd))
+	//Find where is data
+	dummy_checked = l->cbv[EL_ENDPOINT_IN].check (l->endpoint[EL_ENDPOINT_IN]->fd);
+	if (dummy_checked.value)
+		source_ep = EL_ENDPOINT_IN;
+	else
 	{
-		if (source_ep == -1)
-			source_ep = 1;
+		dummy_checked = l->cbv[EL_ENDPOINT_OUT].check (l->endpoint[EL_ENDPOINT_OUT]->fd);
+		if (dummy_checked.value)
+			source_ep = EL_ENDPOINT_OUT;
 		else
-			source_ep = (l->endpoint[0]->buffer_len >= l->endpoint[0]->buffer_len) ? 0 : 1;		//if either endpoints are sending data, priority is given to the endpoint with bigger payload
-			//return 10;	//can't have multiple endpoints sending data, only one allowed
+			return 0;	//nothing
 	}
-	
-	//watchlist clear
-	l->cbv[source_ep].clear (l->endpoint[source_ep]->fd);
-	
-	// receiving from endpoint
-	callReturn = l->cbv[source_ep].recv (l->endpoint[source_ep]);
-	if (callReturn > 0)
+
+	if (dummy_checked.read)	//source_ep needs to be read
 	{
-		die_soft("struct callback_vector.recv", callReturn, errno);
+//#ifdef _DEBUG
+//		printf ("Link ID %u: endpoint %u needs to be read.\n", l->id, source_ep);
+//#endif
+
+		//Check if other endpoint is clear to send
+		if (l->flag_sending[!source_ep])
+			return 0;	//Try next time	TODO add retry counter
+
+
+		//Receiving data from endpoint
+		callReturn = l->cbv[source_ep].recv (l->endpoint[source_ep]);
+		if (callReturn > 0)
+		{
+			die_soft("struct callback_vector.recv", callReturn, errno);
+			return 0;
+		}
+		if (callReturn == -10)
+		{
+			return 10 + source_ep;
+		}
+		if (callReturn == -20)
+			return 0;	//The operation would block - try next time
+
+
+		//Data received
+
+		//Clear watchlist
+		l->cbv[source_ep].clear (l->endpoint[source_ep]->fd, PM_READ);
+
+		//Arrange data
+		l->endpoint[!source_ep]->buffer		= l->endpoint[source_ep]->buffer;
+		l->endpoint[!source_ep]->buffer_len	= l->endpoint[source_ep]->buffer_len;
+
+		//Send data to the other endpoint
+
+		callReturn = l->cbv[!source_ep].send (l->endpoint[!source_ep]);
+		if (callReturn == 20)	//The operation would block
+		{
+#ifdef _DEBUG
+			callReturn = TCP_connection_get_socket_error (l->endpoint[!source_ep]);
+			die_soft ("asd", callReturn, 0);
+#endif
+			//Block other endpoint to writing
+			l->flag_sending[!source_ep] = 1;
+
+			//Add other endpoint to write watchlist
+			l->cbv[!source_ep].add (l->endpoint[!source_ep]->fd, PM_WRITE);
+
+			//Remove this endpoint from read watchlist as it will be indefinitely triggered until the other endpoint will be freed
+			l->cbv[source_ep].remove (l->endpoint[source_ep]->fd, PM_READ);
+
+#ifdef _DEBUG
+			printf ("Link ID: %u, endpoint %u disabled read() because endpoint %u has blocking write().\n", l->id, source_ep, !source_ep);
+#endif
+		}
+		else if (callReturn)
+			die ("struct callback_vector.send", callReturn, errno);
+
+
+		//Check if other endopoint has data left to send
+		if (l->endpoint[!source_ep]->buffer_len)
+		{
+			//Block other endpoint to writing
+			l->flag_sending[!source_ep] = 1;
+
+			//Add other endpoint to write watchlist
+			l->cbv[!source_ep].add (l->endpoint[!source_ep]->fd, PM_WRITE);
+
+			//Remove this endpoint from read watchlist as it will be indefinitely triggered until the other endpoint will be freed
+			l->cbv[source_ep].remove (l->endpoint[source_ep]->fd, PM_READ);
+
+#ifdef _DEBUG
+			printf ("Link ID: %u, endpoint %u has %u bytes left to send\n", l->id, !source_ep, l->endpoint[!source_ep]->buffer_len);
+#endif
+		}
+
+
 		return 0;
 	}
-	if (callReturn == -10)
+	else if (dummy_checked.write)	//source_ep needs to be wrote
 	{
-		printf ("%s:%u disconnected. Closing other endpoint. Destroy link.\n", l->endpoint[source_ep]->address, l->endpoint[source_ep]->port);
+#ifdef _DEBUG
+		printf ("Link ID %u: endpoint %u needs to be wrote.\n", l->id, source_ep);
+#endif
+		//Check if there is data to be sent
+		if (l->flag_sending[source_ep])
+		{
+			//Retry sending data
+			callReturn = l->cbv[source_ep].send (l->endpoint[source_ep]);
+			if (callReturn == 20)	//Connection would block
+			{
+				//TODO: Add retry
+			}
+			else if (callReturn)
+			{
+				die ("struct callback_vector.send", callReturn, errno);
+			}
 
-		if (EL_link_destroy (l)) return 21;
+			//Check if this endpoint has still data left to send
+			if (l->endpoint[source_ep]->buffer_len)
+			{
+#ifdef _DEBUG
+				printf ("Link ID: %u, endpoint %u has %u bytes left to send\n", l->id, source_ep, l->endpoint[source_ep]->buffer_len);
+#endif
+			}
+			else
+			{
+				//Clear blocking flag
+				l->flag_sending[source_ep] = 0;
 
-		return 20;
+				//Remove from write watchlist
+				l->cbv[source_ep].remove (l->endpoint[source_ep]->fd, PM_WRITE);
+
+				//Re-enable the other endpoint on reading, as the read operation would succeed because this endpoint is clear to be written
+				l->cbv[!source_ep].add (l->endpoint[!source_ep]->fd, PM_READ);
+
+#ifdef _DEBUG
+				printf ("Link ID: %u, endpoint %u restored read() because endpoint %u has cleared write().\n", l->id, !source_ep, source_ep);
+#endif
+			}
+		}
+		else
+		{
+			//Remove from write watchlist
+			l->cbv[source_ep].remove (l->endpoint[source_ep]->fd, PM_WRITE);
+
+#ifdef _DEBUG
+			printf ("Link ID %u: endpoint %u write cleared but no data available.\n", l->id, source_ep);
+#endif
+		}
 	}
+	else
+		return 0;	//not managed
 
-	//data arrangment
-	l->endpoint[!source_ep]->buffer		= l->endpoint[source_ep]->buffer;
-	l->endpoint[!source_ep]->buffer_len	= l->endpoint[source_ep]->buffer_len;
-	
-	//data send
-	callReturn = l->cbv[!source_ep].send (l->endpoint[!source_ep]);
-	if (callReturn) die ("struct callback_vector.send", callReturn, errno);
-	
 	return 0;
 }
+
 
 int EL_link_destroy (ELlink * l)
 {
@@ -80,29 +201,38 @@ int EL_link_destroy (ELlink * l)
 		return 10;
 		
 	//watchlist remove
-	l->cbv[EL_ENDPOINT_IN].remove (l->endpoint[EL_ENDPOINT_IN]->fd);
-	l->cbv[EL_ENDPOINT_OUT].remove (l->endpoint[EL_ENDPOINT_OUT]->fd);
+	l->cbv[EL_ENDPOINT_IN].remove (l->endpoint[EL_ENDPOINT_IN]->fd, PM_READ);
+	l->cbv[EL_ENDPOINT_IN].remove (l->endpoint[EL_ENDPOINT_IN]->fd, PM_WRITE);
+	l->cbv[EL_ENDPOINT_OUT].remove (l->endpoint[EL_ENDPOINT_OUT]->fd, PM_READ);
+	l->cbv[EL_ENDPOINT_OUT].remove (l->endpoint[EL_ENDPOINT_OUT]->fd, PM_WRITE);
 
 	//connection destroy
 	callReturn = l->cbv[EL_ENDPOINT_IN].close (l->endpoint[EL_ENDPOINT_IN]);
 	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 1);
 	callReturn = l->cbv[EL_ENDPOINT_OUT].close (l->endpoint[EL_ENDPOINT_OUT]);
 	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 2);
-	
+
 	//link destroy
 	free (l);
 
 	return 0;
 }
 
+
+/* Returns true if at least one of the two endpoints in link l is ready for IO operations. */
 char EL_link_check (ELlink * l)
 {
+	PM_watchlist_checked_t dummy;
+
 	if (l == 0)
 		return 0;
 		
-	return (
-		l->cbv[0].check (l->endpoint[0]->fd)	||
-		l->cbv[1].check (l->endpoint[1]->fd)
-	);
+	dummy = l->cbv[EL_ENDPOINT_IN].check (l->endpoint[EL_ENDPOINT_IN]->fd);
+	if (dummy.value)
+		return 1;
+	dummy = l->cbv[EL_ENDPOINT_OUT].check (l->endpoint[EL_ENDPOINT_OUT]->fd);
+	if (dummy.value)
+		return 2;
+	return 0;
 }
 

@@ -19,14 +19,15 @@ typedef struct {
 } tcpConnection;
 
 
-tcpConnection *	TCP_connection_init			(void);
-int				TCP_connection_listen		(tcpConnection *);
-int				TCP_connection_parse_input	(tcpConnection *, char *, unsigned);
-int				TCP_connection_connect		(tcpConnection *);
-int				TCP_connection_accept		(tcpConnection *, tcpConnection **);
-void			TCP_connection_destroy		(tcpConnection *);
-int				TCP_connection_close		(tcpConnection *);
-int				TCP_connection_receive		(tcpConnection *);
-int				TCP_connection_send			(tcpConnection *);
+tcpConnection *	TCP_connection_init				(void);
+int				TCP_connection_listen			(tcpConnection *);
+int				TCP_connection_parse_input		(tcpConnection *, char *, unsigned);
+int				TCP_connection_connect			(tcpConnection *);
+int				TCP_connection_accept			(tcpConnection *, tcpConnection **);
+void			TCP_connection_destroy			(tcpConnection *);
+int				TCP_connection_close			(tcpConnection *);
+int				TCP_connection_receive			(tcpConnection *);
+int				TCP_connection_send				(tcpConnection *);
+int				TCP_connection_get_socket_error	(tcpConnection *);
 
 #endif

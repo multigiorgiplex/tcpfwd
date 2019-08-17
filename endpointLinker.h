@@ -2,6 +2,7 @@
 #define _ENDPOINTLINKER_H
 
 #include "tcpHandler.h"
+#include "pollerManager.h"
 
 #define EL_ENDPOINT_IN		0
 #define EL_ENDPOINT_OUT		1
@@ -9,19 +10,22 @@
 struct callback_vector
 {
 	//pollerManager.c
-	void			(*remove)(int);
-	void			(*clear)(int);
-	char			(*check)(int);
+	void					(*add)(int, char);
+	void					(*remove)(int, char);
+	void					(*clear)(int, char);
+	PM_watchlist_checked_t	(*check)(int);
 	//tcpHandler.c	
-	int				(*send)(tcpConnection *);
-	int				(*recv)(tcpConnection *);
-	int				(*close)(tcpConnection *);
-	void			(*destroy)(tcpConnection *);
+	int						(*send)(tcpConnection *);
+	int						(*recv)(tcpConnection *);
+	int						(*close)(tcpConnection *);
+	void					(*destroy)(tcpConnection *);
 };
 
 typedef struct {
+	unsigned int 			id;
 	tcpConnection *			endpoint[2];
 	struct callback_vector	cbv[2];
+	char					flag_sending[2];
 } ELlink;
 
 

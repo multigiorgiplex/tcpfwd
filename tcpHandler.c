@@ -1,5 +1,7 @@
 /*Handles TCP communication*/
 
+#define _GNU_SOURCE
+
 #include "tcpHandler.h"
 #include "common.h"
 #include <sys/socket.h>
@@ -27,7 +29,7 @@ tcpConnection * TCP_connection_init ()		//TODO consider defining {tcpConnection 
 int TCP_connection_listen (tcpConnection * srv)
 {
 	//open a socket
-	srv->fd = socket (AF_INET, SOCK_STREAM, 0);
+	srv->fd = socket (AF_INET, SOCK_STREAM/* | SOCK_NONBLOCK*/, 0);
 	if (srv->fd == -1)
 		return 10;
 
@@ -70,17 +72,20 @@ int TCP_connection_parse_input (tcpConnection * cnt, char * address, unsigned po
 
 int TCP_connection_connect (tcpConnection * cnt)
 {
-	//open a socket
-	cnt->fd = socket (AF_INET, SOCK_STREAM, 0);
-	if (cnt->fd == -1)
-		return 10;
-		
+	if (!cnt)
+		return 1;
+
+	if (!cnt->fd)	//Check if socket has already be opened in this connection
+	{
+		//open a socket
+		cnt->fd = socket (AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+		if (cnt->fd == -1)
+			return 10;
+	}
+
 	//connect to host
 	if (connect (cnt->fd, (struct sockaddr *) &(cnt->socket_data), sizeof (struct sockaddr)) == -1)
-	{
-		close (cnt->fd);
 		return 11;
-	}
 	
 	return 0;
 }
@@ -93,7 +98,7 @@ int TCP_connection_accept (tcpConnection * srv, tcpConnection ** client)
 	client_local = TCP_connection_init();
 	if (client_local == 0) return 1;
 	
-	client_local->fd = accept (srv->fd, (struct sockaddr *) &(client_local->socket_data), &socket_data_len);
+	client_local->fd = accept4 (srv->fd, (struct sockaddr *) &(client_local->socket_data), &socket_data_len, SOCK_NONBLOCK);
 	if (client_local->fd == -1)
 		return 10;
 	if (socket_data_len != sizeof (client_local->socket_data))
@@ -109,7 +114,10 @@ int TCP_connection_accept (tcpConnection * srv, tcpConnection ** client)
 
 int TCP_connection_close (tcpConnection * connection)
 {
-	if (shutdown (connection->fd, SHUT_RDWR) == -1)
+	int dummy_return;
+
+	dummy_return = shutdown (connection->fd, SHUT_RDWR);
+	if (dummy_return == -1 && errno != ENOTCONN)	//Ignore if not connected
 		return 10;
 		
 	if (close (connection->fd) == -1)
@@ -131,10 +139,12 @@ int TCP_connection_receive (tcpConnection * conn)
 	ssize_t r;
 
 	r = recv (conn->fd, conn->_tcp_recv_buffer, TCP_BUFFER_LENGHT, 0);
+	if (r == 0 || (r == -1 && errno == ECONNRESET)) /* Connection reset by peer */
+		return -10;
+	if (r == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))	//The operation would block
+		return -20;
 	if (r == -1)
 		return 10;
-	if (r == 0)	//peer disconnected
-		return -10;
 
 	conn->buffer		= conn->_tcp_recv_buffer;
 	conn->buffer_len	= r;
@@ -146,17 +156,36 @@ int TCP_connection_send (tcpConnection * conn)
 {
 	ssize_t w;
 
-	w = send (conn->fd, conn->buffer, conn->buffer_len, 0);
-	if (w == -1)
+	w = send (conn->fd, conn->buffer, conn->buffer_len, MSG_DONTWAIT);	/* Nonblocking IO.  */
+	if (w == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))	//The operation would block
+		return 20;
+	else if (w == -1)
 		return 10;
+
 	if (w != conn->buffer_len)
 	{
-		errno = 42;	//TODO find appropriate value
-		return 11;
+		conn->buffer		+= w;
+		conn->buffer_len	-= w;
+	}
+	else
+	{
+		conn->buffer		= 0;
+		conn->buffer_len	= 0;
 	}
 
-	conn->buffer		= 0;
-	conn->buffer_len	= 0;
-
 	return 0;
+}
+
+int TCP_connection_get_socket_error (tcpConnection * conn)
+{
+	socklen_t socklen;
+	int value;
+
+	socklen = sizeof (int);
+	if (getsockopt (conn->fd, SOL_SOCKET, SO_ERROR, (void *)&value, &socklen) == -1)
+		return -1;
+	if (socklen != sizeof (int))
+		return -2;
+
+	return value;
 }

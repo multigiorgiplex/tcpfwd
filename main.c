@@ -99,6 +99,36 @@ struct _ELlink * _ELlink_remove (ELlink * l)
 	return p_old->next;
 }
 
+int _ELlink_join (tcpConnection ** in, tcpConnection ** out)
+{
+	tcpConnection * inbound_connection = *in;
+	tcpConnection * outbound_connection = *out;
+	ELlink * temp_link = 0;
+
+	PM_watchlist_clear (outbound_connection->fd, PM_WRITE);
+
+	//It is now possible to connect
+	PM_watchlist_add (inbound_connection->fd, PM_READ);
+	PM_watchlist_add (outbound_connection->fd, PM_READ);
+
+	//link together endpoints
+	temp_link = EL_link_open (inbound_connection, outbound_connection, cbv);
+	if (!temp_link)
+		die_return ("EL_link_open", 0, errno, 1);
+
+	printf ("Link ID %u: created between IN (fd: %d) %s:%u <==> %s:%u (fd: %d) OUT\n", temp_link->id,
+			inbound_connection->fd, inbound_connection->address, inbound_connection->port,
+			outbound_connection->address, outbound_connection->port, outbound_connection->fd);
+
+	_ELlink_add (temp_link);
+
+	//clear pointers for next round
+	*in = 0;
+	*out = 0;
+
+	return 0;
+}
+
 void Signal (int s)	//TODO accessed when PM timeout is expired!
 {
 	struct _ELlink * n = &links;
@@ -119,10 +149,11 @@ int main(int argc, char **argv)
 	CLI_Arguments arguments;	
 	tcpConnection * inbound_connection;
 	tcpConnection * outbound_connection;
-	ELlink * temp_link;
 	struct _ELlink * link_list;	
 	int watchlistCounter;
+	PM_watchlist_checked_t watchlistCheck;
 	SH_signalMask signal_mask;
+
 
 	//modules initialization
 	CLI_init ();
@@ -131,11 +162,13 @@ int main(int argc, char **argv)
 	SH_init ();
 
 	//variables initialization
+	inbound_connection = 0;
+	outbound_connection = 0;
 	links.link = 0;
 	links.next = 0;
-	temp_link = 0;
 
 	//populate endpoint linker callback vector
+	cbv.add		= &PM_watchlist_add;
 	cbv.check	= &PM_watchlist_check;
 	cbv.clear	= &PM_watchlist_clear;
 	cbv.remove	= &PM_watchlist_remove;
@@ -159,7 +192,7 @@ int main(int argc, char **argv)
 	if (!arguments.valid)
 		return 1;
 
-	server = TCP_connection_init ();
+	server = TCP_connection_init();
 	if (TCP_connection_parse_input(server, arguments.localAddress, arguments.localPort) == 10)
 	{
 		printf ("Invalid local listening IP address (-la) %s.\n", arguments.localAddress);
@@ -181,7 +214,7 @@ int main(int argc, char **argv)
 			break;
 	}
 
-	PM_watchlist_add (server->fd);
+	PM_watchlist_add (server->fd, PM_READ);	//PM_READ needed only to accept connections
 
 	while (1)
 	{
@@ -193,67 +226,80 @@ int main(int argc, char **argv)
 		
 		while (watchlistCounter--)
 		{
-			if (server && PM_watchlist_check (server->fd))					//Event from SERVER
+			if (server)
 			{
-				PM_watchlist_clear (server->fd);
-				
-				//new client is connecting				
-				callReturn = TCP_connection_accept (server, &inbound_connection);
-				if (callReturn)	die ("TCP_connection_accept", callReturn, errno);
-
-				//check if we're busy
-				if (links_num == MAX_CONNECTION)				//TODO add queue, separate internal tcp buffers
+				watchlistCheck = PM_watchlist_check(server->fd);
+				if (watchlistCheck.read)							//Event from SERVER
 				{
-					printf ("Declining connection, we're busy now...\n");
-					TCP_connection_close (inbound_connection);
-					inbound_connection = 0;
-					continue;
-				}
-				
-				//attempt connection to the other side
+					PM_watchlist_clear (server->fd, PM_READ);
 
-				outbound_connection = TCP_connection_init ();	//data parsing
-				if (TCP_connection_parse_input(outbound_connection, arguments.remoteAddress, arguments.remotePort) == 10)
+					if (inbound_connection)	//We have another connection pending...
+					{
+						continue;	//Next round
+					}
+
+					//new client is connecting
+					callReturn = TCP_connection_accept (server, &inbound_connection);
+					if (callReturn)	die ("TCP_connection_accept", callReturn, errno);
+
+					//check if we're busy
+					if (links_num == MAX_CONNECTION)				//TODO add queue
+					{
+						printf ("Declining connection, we're busy now...\n");
+						TCP_connection_close (inbound_connection);
+						inbound_connection = 0;
+						continue;
+					}
+
+					//attempt connection to the other side
+					outbound_connection = TCP_connection_init ();	//data parsing
+					if (TCP_connection_parse_input(outbound_connection, arguments.remoteAddress, arguments.remotePort) == 10)
+					{
+						printf ("Invalid remote connection IP address (-ra) %s.\n", arguments.remoteAddress);
+						die ("TCP_connection_parse_input", callReturn, 0);
+					}
+//					printf ("Client %s:%u connected.\nConnecting to %s:%u ...\n", inbound_connection->address, inbound_connection->port, outbound_connection->address, outbound_connection->port);
+
+
+					callReturn = TCP_connection_connect (outbound_connection);
+					if (callReturn == 11 && errno == ECONNREFUSED)	/* Connection refused */
+					{
+						// No answer, quit current connection
+						TCP_connection_destroy (outbound_connection);
+						callReturn = TCP_connection_close (inbound_connection);
+						if (callReturn) die ("TCP_connection_close", callReturn, errno);
+
+						//clear pointers for next round
+						inbound_connection = 0;
+						outbound_connection = 0;
+					}
+					else if (callReturn == 11 && errno == EINPROGRESS)	/* Operation now in progress */
+					{
+						//"Queue" operation by putting under select
+						PM_watchlist_add (outbound_connection->fd, PM_WRITE);
+					}
+					else if (callReturn)
+						die_return ("TCP_connection_connect", callReturn, errno, 1)
+					else
+					{
+						if (_ELlink_join (&inbound_connection, &outbound_connection))
+							return 1;
+					}
+				}
+			}	//if (server)
+
+
+			if (outbound_connection)
+			{
+				watchlistCheck = PM_watchlist_check(outbound_connection->fd);
+				if (watchlistCheck.write)
 				{
-					printf ("Invalid remote connection IP address (-ra) %s.\n", arguments.remoteAddress);
-					die ("TCP_connection_parse_input", callReturn, 0);
+					PM_watchlist_remove (outbound_connection->fd, PM_WRITE);
+					if (_ELlink_join (&inbound_connection, &outbound_connection))
+						return 1;
 				}
-				printf ("Client %s:%u connected.\nConnecting to %s:%u ...\n", inbound_connection->address, inbound_connection->port, outbound_connection->address, outbound_connection->port);
+			}	//if (outbound_connection)
 
-				
-				callReturn = TCP_connection_connect (outbound_connection);	//connection
-				if (callReturn == 11 && errno == ECONNREFUSED)
-				{
-					// No answer, quit current connection
-					TCP_connection_destroy (outbound_connection);				
-					callReturn = TCP_connection_close (inbound_connection);
-					if (callReturn) die ("TCP_connection_close", callReturn, errno);			
-
-					//clear pointers for next round
-					inbound_connection = 0;
-					outbound_connection = 0;
-				}
-				else if (callReturn)
-					return 1;
-				else
-				{
-					; //now do something
-					//PM_watchlist_add (connection[0]->fd);
-
-					PM_watchlist_add (inbound_connection->fd);
-					PM_watchlist_add (outbound_connection->fd);
-
-					//link together endpoints
-					printf ("Linking %s:%u  <==>  %s:%u\n", inbound_connection->address, inbound_connection->port, outbound_connection->address, outbound_connection->port);
-					temp_link = EL_link_open (inbound_connection, outbound_connection, cbv);
-					if (!temp_link) die ("EL_link_open", 0, errno);
-					_ELlink_add (temp_link);
-					
-					//clear pointers for next round
-					inbound_connection = 0;
-					outbound_connection = 0;
-				}
-			}
 
 			link_list = &links;
 			while (link_list && link_list->link)
@@ -261,19 +307,25 @@ int main(int argc, char **argv)
 				if (EL_link_check (link_list->link))
 				{
 					callReturn = EL_link_manage (link_list->link);
-					if (callReturn == 20)	//link destroyed
+					if (callReturn == 10 || callReturn == 11)	//link destroyed
 					{
+						printf ("Link ID %u: destroyed because endpoint %s has disconnected.\n",
+								link_list->link->id, (callReturn-10 == EL_ENDPOINT_IN) ? "IN" : "OUT");
+
+						callReturn = EL_link_destroy (link_list->link);
+						if (callReturn)
+							return 1;
 						link_list = _ELlink_remove (link_list->link);
+						continue;
 					}
 					else if (callReturn)	//some errors
 						die ("EL_link_manage", callReturn, errno);
 				}
-				else
-				{
-					link_list = link_list->next;
-				}			
-			}
-		}
+
+				link_list = link_list->next;
+
+			}	//while (link_list && link_list->link)
+		}	//while (watchlistCounter--)
 	}
 	
 	return 0;
