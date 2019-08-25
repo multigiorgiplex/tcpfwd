@@ -218,11 +218,9 @@ int main(int argc, char **argv)
 
 	while (1)
 	{
-		watchlistCounter = PM_watchlist_run ();
+		watchlistCounter = PM_watchlist_run (0);
 		if (watchlistCounter == -1)
-		{
-			die ("PM_watchlist_run", watchlistCounter, errno);
-		}
+			return 1;
 		
 		while (watchlistCounter--)
 		{

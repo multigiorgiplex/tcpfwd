@@ -3,7 +3,10 @@
 #include "pollerManager.h"
 #include <sys/select.h>
 #include <stdlib.h>
+#include <time.h>
+#include <errno.h>
 #include "signalHandler.h"
+#include "cliTasks.h"
 
 #ifdef _DEBUG
 #include <stdio.h>
@@ -66,10 +69,48 @@ void PM_init (unsigned watch_timeout)
 }
 
 
+void PM_watchlist_print (fd_set * set)
+{
+	__fd_mask mask;
+	signed char i;
+	unsigned short j;
+	int setted_fd, max_fd;
+
+	max_fd = _PM_get_max_fd (set);
+	setted_fd = 0;
+
+	for (i=0; i<__FD_SETSIZE / __NFDBITS; i++)
+	{
+		mask = 1UL;
+		for (j = 0; j < __NFDBITS; j++)
+		{
+			if (set->__fds_bits[i] & mask)
+				printf ("%u, ", setted_fd);
+
+			mask <<= 1;
+			setted_fd++;
+
+			if (setted_fd > max_fd)
+			{
+				// Exit
+				j = __NFDBITS;
+				i = __FD_SETSIZE / __NFDBITS;
+			}
+		}
+	}
+}
+
+
 void PM_watchlist_add (int fd, char list_type)
 {
 	FD_SET (fd, &_PM_watchlist_compiled[list_type]);
-	if (fd > PM_watchlist_max_fd[list_type]) PM_watchlist_max_fd[list_type] = fd;
+	if (fd > PM_watchlist_max_fd[list_type]) PM_watchlist_max_fd[list_type] = fd;	// Faster than _PM_get_max_fd
+
+#ifdef _DEBUG
+	printf ("[" __FILE__ ":%u] @ PM_watchlist_add(%d, %u) - FDs: ", __LINE__, fd, list_type);
+	PM_watchlist_print (&_PM_watchlist_compiled[list_type]);
+	printf ("\n");
+#endif
 }
 
 
@@ -77,24 +118,51 @@ void PM_watchlist_remove (int fd, char list_type)
 {
 	FD_CLR (fd, &_PM_watchlist_compiled[list_type]);
 	PM_watchlist_max_fd[list_type] = _PM_get_max_fd (&_PM_watchlist_compiled[list_type]);
+
+#ifdef _DEBUG
+	printf ("[" __FILE__ ":%u] @ PM_watchlist_remove(%d, %u) - FDs: ", __LINE__, fd, list_type);
+	PM_watchlist_print (&_PM_watchlist_compiled[list_type]);
+	printf ("\n");
+#endif
 }
 
 
-int PM_watchlist_run ()
+int PM_watchlist_run (unsigned int * elapsed_time)
 {
-	struct timespec timeout = PM_timeout;
-	int max_fd;
+	int max_fd, ret;
+	unsigned int wait_time;
+	struct timespec t_start, t_stop;
 
 	//reset
 	PM_watchlist[PM_READ]		= _PM_watchlist_compiled[PM_READ];
 	PM_watchlist[PM_WRITE]		= _PM_watchlist_compiled[PM_WRITE];
 	PM_watchlist[PM_EXCEPT]		= _PM_watchlist_compiled[PM_EXCEPT];
-	
 													max_fd = PM_watchlist_max_fd[PM_READ];
 	if (PM_watchlist_max_fd[PM_WRITE] > max_fd)		max_fd = PM_watchlist_max_fd[PM_WRITE];
 	if (PM_watchlist_max_fd[PM_EXCEPT] > max_fd)	max_fd = PM_watchlist_max_fd[PM_EXCEPT];
 
-	return pselect (max_fd+1, &PM_watchlist[PM_READ], &PM_watchlist[PM_WRITE], &PM_watchlist[PM_EXCEPT], &timeout, &(PM_signalMask.signals));
+
+	callReturn = clock_gettime (CLOCK_MONOTONIC_RAW, &t_start);		/* Monotonic system-wide clock, not adjusted for frequency scaling.  */
+	if (callReturn) die ("clock_gettime", callReturn, errno);
+
+	/* select() may update the timeout argument to indicate how much time was left.  pselect() does not change this argument. */
+	ret = pselect (max_fd+1, &PM_watchlist[PM_READ], &PM_watchlist[PM_WRITE], &PM_watchlist[PM_EXCEPT], &PM_timeout, &(PM_signalMask.signals));
+	if (ret == -1) die ("pselect", ret, errno);
+
+	callReturn = clock_gettime (CLOCK_MONOTONIC_RAW, &t_stop);
+	if (callReturn) die ("clock_gettime", callReturn, errno);
+
+	wait_time = (t_stop.tv_sec - t_start.tv_sec) *1000;
+	wait_time += (t_stop.tv_nsec - t_start.tv_nsec) /1000000;
+
+#if defined _DEBUG && 0
+	printf ("[" __FILE__ ":%u] @ PM_watchlist_run() wait_time: %u\n", __LINE__, wait_time);
+#endif
+
+	if (elapsed_time)
+		*elapsed_time = wait_time;
+
+	return ret;
 }
 
 
