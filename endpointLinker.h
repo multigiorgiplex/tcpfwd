@@ -3,6 +3,7 @@
 
 #include "tcpHandler.h"
 #include "pollerManager.h"
+#include <stdint.h>
 
 #define EL_ENDPOINT_IN		0
 #define EL_ENDPOINT_OUT		1
@@ -10,9 +11,9 @@
 struct callback_vector
 {
 	//pollerManager.c
-	void					(*add)(int, char);
-	void					(*remove)(int, char);
-	void					(*clear)(int, char);
+	void					(*add)(int, uint8_t);
+	void					(*remove)(int, uint8_t);
+	void					(*clear)(int, uint8_t);
 	PM_watchlist_checked_t	(*check)(int);
 	//tcpHandler.c	
 	int						(*send)(tcpConnection *);

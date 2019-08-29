@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <errno.h>
+#include <stdint.h>
 #include "signalHandler.h"
 #include "cliTasks.h"
 
@@ -23,22 +24,22 @@ SH_signalMask PM_signalMask;		//Signals to avoid interrupting to when calling PM
 /* returns the max fd in a specified set */
 static int _PM_get_max_fd (fd_set * set)
 {
-	/*	fd_set is just a struct containing an array of (__FD_SETSIZE / __NFDBITS) elements of __fd_mask type
-	 * 	__fd_mask is a integer type of length __NFDBITS bits, therefore the maximum fd allowed is __FD_SETSIZE.
+	/*	fd_set is just a struct containing an array of (FD_SETSIZE / NFDBITS) elements of fd_mask type
+	 *  fd_mask is a integer type of length NFDBITS bits, therefore the maximum fd allowed is FD_SETSIZE.
 	 */
-	int ret = __FD_SETSIZE -1;
-	__fd_mask mask;
+	int ret = FD_SETSIZE -1;
+	fd_mask mask;
 	signed char i;
 	unsigned short j;
 
-	/* for every element of fd_set.__fd_mask */
-	for (i = (__FD_SETSIZE / __NFDBITS) -1; i >= 0; i--)
+	/* for every element of fd_set.fd_mask */
+	for (i = (FD_SETSIZE / NFDBITS) -1; i >= 0; i--)
 	{
 		/* generate a bit mask starting a the leftmost bit */
-		mask = 1UL << (__NFDBITS -1);
+		mask = 1UL << (NFDBITS -1);
 
 		/* for every bit in __fd_mask */
-		for (j = 0; j < __NFDBITS; j++)
+		for (j = 0; j < NFDBITS; j++)
 		{
 			/* compare if it matches with the mask */
 			if (set->__fds_bits[i] & mask)
@@ -68,10 +69,10 @@ void PM_init (unsigned watch_timeout)
 	SH_clearSignalMask (&PM_signalMask);
 }
 
-
+#ifdef _DEBUG
 void PM_watchlist_print (fd_set * set)
 {
-	__fd_mask mask;
+	fd_mask mask;
 	signed char i;
 	unsigned short j;
 	int setted_fd, max_fd;
@@ -79,10 +80,10 @@ void PM_watchlist_print (fd_set * set)
 	max_fd = _PM_get_max_fd (set);
 	setted_fd = 0;
 
-	for (i=0; i<__FD_SETSIZE / __NFDBITS; i++)
+	for (i=0; i<FD_SETSIZE / NFDBITS; i++)
 	{
 		mask = 1UL;
-		for (j = 0; j < __NFDBITS; j++)
+		for (j = 0; j < NFDBITS; j++)
 		{
 			if (set->__fds_bits[i] & mask)
 				printf ("%u, ", setted_fd);
@@ -93,15 +94,15 @@ void PM_watchlist_print (fd_set * set)
 			if (setted_fd > max_fd)
 			{
 				// Exit
-				j = __NFDBITS;
-				i = __FD_SETSIZE / __NFDBITS;
+				j = NFDBITS;
+				i = FD_SETSIZE / NFDBITS;
 			}
 		}
 	}
 }
+#endif
 
-
-void PM_watchlist_add (int fd, char list_type)
+void PM_watchlist_add (int fd, uint8_t list_type)
 {
 	FD_SET (fd, &_PM_watchlist_compiled[list_type]);
 	if (fd > PM_watchlist_max_fd[list_type]) PM_watchlist_max_fd[list_type] = fd;	// Faster than _PM_get_max_fd
@@ -114,7 +115,7 @@ void PM_watchlist_add (int fd, char list_type)
 }
 
 
-void PM_watchlist_remove (int fd, char list_type)
+void PM_watchlist_remove (int fd, uint8_t list_type)
 {
 	FD_CLR (fd, &_PM_watchlist_compiled[list_type]);
 	PM_watchlist_max_fd[list_type] = _PM_get_max_fd (&_PM_watchlist_compiled[list_type]);
@@ -166,7 +167,7 @@ int PM_watchlist_run (unsigned int * elapsed_time)
 }
 
 
-void PM_watchlist_clear (int fd, char list_type)
+void PM_watchlist_clear (int fd, uint8_t list_type)
 {
 	FD_CLR (fd, &PM_watchlist[list_type]);
 }
