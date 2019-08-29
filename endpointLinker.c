@@ -68,16 +68,16 @@ int EL_link_manage (ELlink * l)
 
 		//Receiving data from endpoint
 		callReturn = l->cbv[source_ep].recv (l->endpoint[source_ep]);
-		if (callReturn > 0)
+		if (callReturn == TCP_CONN_RECEIVE_ERECV)
 		{
 			die_soft("struct callback_vector.recv", callReturn, errno);
 			return 0;
 		}
-		if (callReturn == -10)
+		if (callReturn == TCP_CONN_RECEIVE_DISCONNECTED)
 		{
 			return 10 + source_ep;
 		}
-		if (callReturn == -20)
+		if (callReturn == TCP_CONN_RECEIVE_BLOCK)
 			return 0;	//The operation would block - try next time
 
 
@@ -93,7 +93,7 @@ int EL_link_manage (ELlink * l)
 		//Send data to the other endpoint
 
 		callReturn = l->cbv[!source_ep].send (l->endpoint[!source_ep]);
-		if (callReturn == 20)	//The operation would block
+		if (callReturn == TCP_CONN_SEND_BLOCK)	//The operation would block
 		{
 #ifdef _DEBUG
 			callReturn = TCP_connection_get_socket_error (l->endpoint[!source_ep]);
@@ -112,7 +112,7 @@ int EL_link_manage (ELlink * l)
 			printf ("Link ID: %u, endpoint %u disabled read() because endpoint %u has blocking write().\n", l->id, source_ep, !source_ep);
 #endif
 		}
-		else if (callReturn)
+		else if (callReturn == TCP_CONN_SEND_ESEND)
 			die ("struct callback_vector.send", callReturn, errno);
 
 
@@ -146,11 +146,11 @@ int EL_link_manage (ELlink * l)
 		{
 			//Retry sending data
 			callReturn = l->cbv[source_ep].send (l->endpoint[source_ep]);
-			if (callReturn == 20)	//Connection would block
+			if (callReturn == TCP_CONN_SEND_BLOCK)	//Connection would block
 			{
 				//TODO: Add retry
 			}
-			else if (callReturn)
+			else if (callReturn == TCP_CONN_SEND_ESEND)
 			{
 				die ("struct callback_vector.send", callReturn, errno);
 			}
@@ -208,9 +208,9 @@ int EL_link_destroy (ELlink * l)
 
 	//connection destroy
 	callReturn = l->cbv[EL_ENDPOINT_IN].close (l->endpoint[EL_ENDPOINT_IN]);
-	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 1);
+	if (callReturn != TCP_CONN_CLOSE_OK) die_return ("struct callback_vector.close", callReturn, errno, 1);
 	callReturn = l->cbv[EL_ENDPOINT_OUT].close (l->endpoint[EL_ENDPOINT_OUT]);
-	if (callReturn) die_return ("struct callback_vector.close", callReturn, errno, 2);
+	if (callReturn != TCP_CONN_CLOSE_OK) die_return ("struct callback_vector.close", callReturn, errno, 2);
 
 	//link destroy
 	free (l);

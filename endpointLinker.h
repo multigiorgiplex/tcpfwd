@@ -16,9 +16,9 @@ struct callback_vector
 	void					(*clear)(int, uint8_t);
 	PM_watchlist_checked_t	(*check)(int);
 	//tcpHandler.c	
-	int						(*send)(tcpConnection *);
-	int						(*recv)(tcpConnection *);
-	int						(*close)(tcpConnection *);
+	TCP_CONN_SEND_t			(*send)(tcpConnection *);
+	TCP_CONN_RECEIVE_t		(*recv)(tcpConnection *);
+	TCP_CONN_CLOSE_t		(*close)(tcpConnection *);
 	void					(*destroy)(tcpConnection *);
 };
 

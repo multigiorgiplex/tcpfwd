@@ -201,18 +201,10 @@ int main(int argc, char **argv)
 	
 
 	callReturn = TCP_connection_listen (server);
-	switch (callReturn)
-	{
-		case 10:
-		case 11:
-		case 12:
-		default:
-			die ("TCP_connection_listen", callReturn, errno);
-
-		case 0:
-			printf ("Listening on %s:%u ...\n", server->address, server->port);
-			break;
-	}
+	if (callReturn == TCP_CONN_LISTEN_OK)
+		printf ("Listening on %s:%u ...\n", server->address, server->port);
+	else
+		die ("TCP_connection_listen", callReturn, errno);
 
 	PM_watchlist_add (server->fd, PM_READ);	//PM_READ needed only to accept connections
 
@@ -232,57 +224,62 @@ int main(int argc, char **argv)
 					PM_watchlist_clear (server->fd, PM_READ);
 
 					if (inbound_connection)	//We have another connection pending...
-					{
-						continue;	//Next round
-					}
+						continue;			//Next round
 
 					//new client is connecting
 					callReturn = TCP_connection_accept (server, &inbound_connection);
-					if (callReturn)	die ("TCP_connection_accept", callReturn, errno);
+					if (callReturn != TCP_CONN_ACCEPT_OK)
+						die ("TCP_connection_accept", callReturn, errno);
 
 					//check if we're busy
 					if (links_num == MAX_CONNECTION)				//TODO add queue
 					{
 						printf ("Declining connection, we're busy now...\n");
-						TCP_connection_close (inbound_connection);
+						callReturn = TCP_connection_close (inbound_connection);
+						if (callReturn != TCP_CONN_CLOSE_OK)
+							die ("TCP_connection_close", callReturn, errno);
 						inbound_connection = 0;
 						continue;
 					}
 
 					//attempt connection to the other side
 					outbound_connection = TCP_connection_init ();	//data parsing
-					if (TCP_connection_parse_input(outbound_connection, arguments.remoteAddress, arguments.remotePort) == 10)
+					if (TCP_connection_parse_input(outbound_connection, arguments.remoteAddress, arguments.remotePort))
 					{
 						printf ("Invalid remote connection IP address (-ra) %s.\n", arguments.remoteAddress);
 						die ("TCP_connection_parse_input", callReturn, 0);
 					}
-//					printf ("Client %s:%u connected.\nConnecting to %s:%u ...\n", inbound_connection->address, inbound_connection->port, outbound_connection->address, outbound_connection->port);
-
 
 					callReturn = TCP_connection_connect (outbound_connection);
-					if (callReturn == 11 && errno == ECONNREFUSED)	/* Connection refused */
+					if (callReturn == TCP_CONN_CONNECT_OK)
 					{
+						if (_ELlink_join (&inbound_connection, &outbound_connection))
+							return 1;
+					}
+					else if (callReturn == TCP_CONN_CONNECT_EREFUSED || callReturn == TCP_CONN_CONNECT_EUNREACHABLE)
+					{
+						printf ("Connection to %s:%u failed (#%d)\n", outbound_connection->address, outbound_connection->port, callReturn);
+
 						// No answer, quit current connection
-						TCP_connection_destroy (outbound_connection);
+						callReturn = TCP_connection_close (outbound_connection);
+						if (callReturn != TCP_CONN_CLOSE_OK)
+							die ("TCP_connection_close", callReturn, errno);
 						callReturn = TCP_connection_close (inbound_connection);
-						if (callReturn) die ("TCP_connection_close", callReturn, errno);
+						if (callReturn != TCP_CONN_CLOSE_OK)
+							die ("TCP_connection_close", callReturn, errno);
 
 						//clear pointers for next round
 						inbound_connection = 0;
 						outbound_connection = 0;
 					}
-					else if (callReturn == 11 && errno == EINPROGRESS)	/* Operation now in progress */
+					else if (callReturn == TCP_CONN_CONNECT_INPROGRESS)
 					{
 						//"Queue" operation by putting under select
 						PM_watchlist_add (outbound_connection->fd, PM_WRITE);
 					}
-					else if (callReturn)
+					else if (callReturn == TCP_CONN_CONNECT_EGENERIC)
 						die_return ("TCP_connection_connect", callReturn, errno, 1)
-					else
-					{
-						if (_ELlink_join (&inbound_connection, &outbound_connection))
-							return 1;
-					}
+
 				}
 			}	//if (server)
 
@@ -293,6 +290,25 @@ int main(int argc, char **argv)
 				if (watchlistCheck.write)
 				{
 					PM_watchlist_remove (outbound_connection->fd, PM_WRITE);
+					//Check if there is errors
+					callReturn = TCP_connection_get_socket_error (outbound_connection);
+					if (callReturn < 0) die ("TCP_connection_get_socket_error", callReturn, errno);
+
+					if (callReturn)
+					{
+						printf ("Connection error, connect() errno: %s\n", strerror (callReturn));
+						callReturn = TCP_connection_close (outbound_connection);
+						if (callReturn != TCP_CONN_CLOSE_OK)
+							die ("TCP_connection_close", callReturn, errno);
+						callReturn = TCP_connection_close (inbound_connection);
+						if (callReturn != TCP_CONN_CLOSE_OK)
+							die ("TCP_connection_close", callReturn, errno);
+
+						//clear pointers for next round
+						inbound_connection = 0;
+						outbound_connection = 0;
+					}
+
 					if (_ELlink_join (&inbound_connection, &outbound_connection))
 						return 1;
 				}
